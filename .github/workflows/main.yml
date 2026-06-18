@@ -28,19 +28,25 @@ jobs:
 
           now_utc = datetime.now(timezone.utc)
           now_bj = now_utc + timedelta(hours=8)
-
           bj_hour = now_bj.hour
           bj_weekday = now_bj.weekday()  # 0=周一, 6=周日
 
           is_weekend = bj_weekday >= 5
-          is_report_time = bj_hour in [10, 22]
+          is_mandatory_report_time = bj_hour in [10, 22]
+          is_manual_run = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
 
-          # 工作日：每2小时检测一次
-          # 周末：每1小时检测一次
-          should_check = is_weekend or bj_hour % 2 == 0
+          # GitHub每小时启动一次：
+          # 工作日：0/3/6/9/12/15/18/21点检测 + 10点/22点强制检测
+          # 周末：每小时检测
+          should_check = (
+              is_manual_run
+              or is_weekend
+              or bj_hour % 3 == 0
+              or is_mandatory_report_time
+          )
 
           if not should_check:
-              print("工作日低频模式：本小时跳过检测。")
+              print("当前不是检测时间，跳过。")
               raise SystemExit(0)
 
           with open("links.json", "r", encoding="utf-8") as f:
@@ -88,39 +94,40 @@ jobs:
                       f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}"
                   )
 
-          # 异常：立即通知
-          # 正常：只在北京时间10点和22点通知
-          if bad or is_report_time:
-              text = KEYWORD + "\n本次检测结果：\n\n"
-              text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
-              text += f"正常：{len(ok)} 个\n"
-              text += f"异常：{len(bad)} 个\n\n"
-
-              if ok:
-                  text += "【正常链接】\n"
-                  text += "\n\n".join(ok)
-                  text += "\n\n"
-
-              if bad:
-                  text += "【异常链接】\n"
-                  text += "\n\n".join(bad)
-
-              data = {
-                  "msg_type": "text",
-                  "content": {
-                      "text": text
-                  }
-              }
-
-              req = urllib.request.Request(
-                  WEBHOOK,
-                  data=json.dumps(data).encode("utf-8"),
-                  headers={"Content-Type": "application/json"}
-              )
-
-              urllib.request.urlopen(req, timeout=20)
-
+          if is_manual_run:
+              mode = "手动测试"
+          elif is_weekend:
+              mode = "周末每小时检测"
+          elif is_mandatory_report_time:
+              mode = "早晚10点强制报告"
           else:
-              print("检测正常，非早晚10点，不发送飞书。")
+              mode = "工作日每3小时检测"
 
+          text = KEYWORD + "\n本次检测结果：\n\n"
+          text += f"模式：{mode}\n"
+          text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
+          text += f"正常：{len(ok)} 个\n"
+          text += f"异常：{len(bad)} 个\n\n"
+
+          if ok:
+              text += "【正常链接】\n"
+              text += "\n\n".join(ok)
+              text += "\n\n"
+
+          if bad:
+              text += "【异常链接】\n"
+              text += "\n\n".join(bad)
+
+          data = {
+              "msg_type": "text",
+              "content": {"text": text}
+          }
+
+          req = urllib.request.Request(
+              WEBHOOK,
+              data=json.dumps(data).encode("utf-8"),
+              headers={"Content-Type": "application/json"}
+          )
+
+          urllib.request.urlopen(req, timeout=20)
           PY
