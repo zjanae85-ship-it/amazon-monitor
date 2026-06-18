@@ -1,108 +1,79 @@
 name: Amazon Monitor
 
 on:
-schedule:
-- cron: "0 */2 * * *"
-workflow_dispatch:
+  schedule:
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
 
 jobs:
-monitor:
-runs-on: ubuntu-latest
+  monitor:
+    runs-on: ubuntu-latest
 
-```
-steps:
-  - name: Checkout
-    uses: actions/checkout@v4
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
-  - name: Check Amazon links
-    run: |
-      python - <<'PY'
-      import json
-      import os
-      import urllib.request
+      - name: Check Amazon links
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import urllib.request
 
-      KEYWORD = "Amazon监控"
-      WEBHOOK = os.environ["FEISHU_WEBHOOK"]
+          KEYWORD = "Amazon监控"
+          WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
-      with open("links.json", "r", encoding="utf-8") as f:
-          links = json.load(f)["links"]
+          with open("links.json", "r", encoding="utf-8") as f:
+              links = json.load(f)["links"]
 
-      headers = {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-          "Accept-Language": "en-US,en;q=0.9",
-      }
-
-      bad = []
-
-      for item in links:
-          asin = item["asin"]
-          url = item["url"]
-
-          try:
-              req = urllib.request.Request(url, headers=headers)
-
-              with urllib.request.urlopen(req, timeout=25) as r:
-                  html = r.read().decode("utf-8", errors="ignore")
-
-              if "Robot Check" in html:
-                  bad.append(
-                      f"ASIN：{asin}\n异常：Amazon验证码/机器人拦截\n链接：{url}"
-                  )
-
-              elif (
-                  "Page Not Found" in html
-                  or "Dogs of Amazon" in html
-                  or "Sorry! We couldn't find that page" in html
-              ):
-                  bad.append(
-                      f"ASIN：{asin}\n异常：页面打不开/狗页/Listing异常\n链接：{url}"
-                  )
-
-              elif "add-to-cart-button" not in html:
-                  bad.append(
-                      f"ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart\n链接：{url}"
-                  )
-
-              else:
-                  print(f"{asin} 正常")
-
-          except Exception as e:
-              bad.append(
-                  f"ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}"
-              )
-
-      if bad:
-
-          text = (
-              KEYWORD
-              + "\n发现异常：\n\n"
-              + "\n\n".join(bad)
-          )
-
-      else:
-
-          text = (
-              KEYWORD
-              + "\n检测完成：全部正常 ✅"
-          )
-
-      data = {
-          "msg_type": "text",
-          "content": {
-              "text": text
+          headers = {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
+              "Accept-Language": "en-US,en;q=0.9",
           }
-      }
 
-      req = urllib.request.Request(
-          WEBHOOK,
-          data=json.dumps(data).encode("utf-8"),
-          headers={"Content-Type": "application/json"}
-      )
+          bad = []
 
-      urllib.request.urlopen(req, timeout=20)
+          for item in links:
+              asin = item["asin"]
+              url = item["url"]
 
-      PY
+              try:
+                  req = urllib.request.Request(url, headers=headers)
+                  with urllib.request.urlopen(req, timeout=25) as r:
+                      html = r.read().decode("utf-8", errors="ignore")
 
-    env:
-      FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
-```
+                  if "Robot Check" in html:
+                      bad.append(f"ASIN：{asin}\n异常：Amazon验证码/机器人拦截\n链接：{url}")
+
+                  elif "Page Not Found" in html or "Dogs of Amazon" in html or "Sorry! We couldn't find that page" in html:
+                      bad.append(f"ASIN：{asin}\n异常：页面打不开/狗页/Listing异常\n链接：{url}")
+
+                  elif "add-to-cart-button" not in html and "Add to Cart" not in html and "Buy Now" not in html:
+                      bad.append(f"ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart / Buy Now\n链接：{url}")
+
+                  else:
+                      print(f"{asin} 正常")
+
+              except Exception as e:
+                  bad.append(f"ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
+
+          if bad:
+              text = KEYWORD + "\n发现异常：\n\n" + "\n\n".join(bad)
+          else:
+              text = KEYWORD + "\n检测完成：全部正常 ✅"
+
+          data = {
+              "msg_type": "text",
+              "content": {"text": text}
+          }
+
+          req = urllib.request.Request(
+              WEBHOOK,
+              data=json.dumps(data).encode("utf-8"),
+              headers={"Content-Type": "application/json"}
+          )
+
+          urllib.request.urlopen(req, timeout=20)
+          PY
