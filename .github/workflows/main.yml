@@ -40,37 +40,17 @@ jobs:
                   with urllib.request.urlopen(req, timeout=25) as r:
                       html = r.read().decode("utf-8", errors="ignore")
 
-                  page_problem_words = [
-                      "Sorry! We couldn",
-                      "Page Not Found",
-                      "Dogs of Amazon",
-                      "Robot Check",
-                  ]
+                  if "Robot Check" in html:
+                      bad.append(f"ASIN：{asin}\n异常：Amazon验证码/机器人拦截\n链接：{url}")
 
-                  unavailable_words = [
-                      "Currently unavailable",
-                      "This item is currently unavailable",
-                      "Temporarily out of stock",
-                  ]
+                  elif "Page Not Found" in html or "Dogs of Amazon" in html or "Sorry! We couldn't find that page" in html:
+                      bad.append(f"ASIN：{asin}\n异常：页面打不开/狗页/Listing异常\n链接：{url}")
 
-                  cart_words = [
-                      "Add to Cart",
-                      "Buy Now",
-                      "add-to-cart-button",
-                      "buy-now-button",
-                  ]
-
-                  if any(w in html for w in page_problem_words):
-                      bad.append(f"ASIN：{asin}\n异常：页面异常/狗页/验证码\n链接：{url}")
-
-                  elif any(w in html for w in unavailable_words):
-                      bad.append(f"ASIN：{asin}\n异常：前台不可售 / Currently unavailable\n链接：{url}")
-
-                  elif not any(w in html for w in cart_words):
-                      bad.append(f"ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart / Buy Now\n链接：{url}")
+                  elif "add-to-cart-button" not in html:
+                      bad.append(f"ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart\n链接：{url}")
 
                   else:
-                      print(f"{asin} 正常：检测到购物车/购买按钮")
+                      print(f"{asin} 正常：检测到 Add to Cart")
 
               except Exception as e:
                   bad.append(f"ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
@@ -79,9 +59,7 @@ jobs:
               text = KEYWORD + "\n发现异常：\n\n" + "\n\n".join(bad)
               data = {
                   "msg_type": "text",
-                  "content": {
-                      "text": text
-                  }
+                  "content": {"text": text}
               }
 
               req = urllib.request.Request(
