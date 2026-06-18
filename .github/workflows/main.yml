@@ -2,7 +2,7 @@ name: Amazon Monitor
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:
@@ -14,25 +14,45 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Check Amazon links
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: |
           python - <<'PY'
           import json
           import os
           import urllib.request
+          from datetime import datetime, timedelta, timezone
 
           KEYWORD = "Amazon监控"
           WEBHOOK = os.environ["FEISHU_WEBHOOK"]
+
+          now_utc = datetime.now(timezone.utc)
+          now_bj = now_utc + timedelta(hours=8)
+
+          bj_hour = now_bj.hour
+          bj_weekday = now_bj.weekday()  # 0=周一, 6=周日
+
+          is_weekend = bj_weekday >= 5
+          is_report_time = bj_hour in [10, 22]
+
+          # 工作日：每2小时检测一次
+          # 周末：每1小时检测一次
+          should_check = is_weekend or bj_hour % 2 == 0
+
+          if not should_check:
+              print("工作日低频模式：本小时跳过检测。")
+              raise SystemExit(0)
 
           with open("links.json", "r", encoding="utf-8") as f:
               links = json.load(f)["links"]
 
           headers = {
               "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36",
-              "Accept-Language": "en-US,en;q=0.9"
+              "Accept-Language": "en-US,en;q=0.9",
           }
 
-          normal = []
-          abnormal = []
+          ok = []
+          bad = []
 
           for item in links:
               asin = item["asin"]
@@ -44,63 +64,63 @@ jobs:
                   with urllib.request.urlopen(req, timeout=25) as r:
                       html = r.read().decode("utf-8", errors="ignore")
 
-                  # 页面异常
-                  if (
-                      "Robot Check" in html
-                      or "Page Not Found" in html
-                      or "Dogs of Amazon" in html
-                  ):
-                      abnormal.append(
-                          f"⚠️ ASIN: {asin}\n"
-                          f"异常：页面异常\n"
-                          f"链接：{url}"
+                  if "Robot Check" in html:
+                      bad.append(
+                          f"❌ ASIN：{asin}\n异常：Amazon验证码拦截\n链接：{url}"
                       )
+
+                  elif (
+                      "Page Not Found" in html
+                      or "Dogs of Amazon" in html
+                      or "Sorry! We couldn't find that page" in html
+                  ):
+                      bad.append(
+                          f"❌ ASIN：{asin}\n异常：页面异常/狗页\n链接：{url}"
+                      )
+
                   else:
-                      normal.append(
-                          f"✅ ASIN: {asin}\n"
-                          f"状态：正常\n"
-                          f"链接：{url}"
+                      ok.append(
+                          f"✅ ASIN：{asin}\n状态：页面正常\n链接：{url}"
                       )
 
               except Exception as e:
-                  abnormal.append(
-                      f"⚠️ ASIN: {asin}\n"
-                      f"异常：访问失败\n"
-                      f"错误：{e}\n"
-                      f"链接：{url}"
+                  bad.append(
+                      f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}"
                   )
 
-          text = (
-              f"{KEYWORD}\n"
-              f"本次检测结果：\n\n"
-              f"正常：{len(normal)} 个\n"
-              f"异常：{len(abnormal)} 个\n\n"
-          )
+          # 异常：立即通知
+          # 正常：只在北京时间10点和22点通知
+          if bad or is_report_time:
+              text = KEYWORD + "\n本次检测结果：\n\n"
+              text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
+              text += f"正常：{len(ok)} 个\n"
+              text += f"异常：{len(bad)} 个\n\n"
 
-          if normal:
-              text += "【正常链接】\n"
-              text += "\n\n".join(normal)
-              text += "\n\n"
+              if ok:
+                  text += "【正常链接】\n"
+                  text += "\n\n".join(ok)
+                  text += "\n\n"
 
-          if abnormal:
-              text += "【异常链接】\n"
-              text += "\n\n".join(abnormal)
+              if bad:
+                  text += "【异常链接】\n"
+                  text += "\n\n".join(bad)
 
-          data = {
-              "msg_type": "text",
-              "content": {
-                  "text": text
+              data = {
+                  "msg_type": "text",
+                  "content": {
+                      "text": text
+                  }
               }
-          }
 
-          req = urllib.request.Request(
-              WEBHOOK,
-              data=json.dumps(data).encode("utf-8"),
-              headers={"Content-Type": "application/json"}
-          )
+              req = urllib.request.Request(
+                  WEBHOOK,
+                  data=json.dumps(data).encode("utf-8"),
+                  headers={"Content-Type": "application/json"}
+              )
 
-          urllib.request.urlopen(req, timeout=20)
+              urllib.request.urlopen(req, timeout=20)
+
+          else:
+              print("检测正常，非早晚10点，不发送飞书。")
 
           PY
-        env:
-          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
