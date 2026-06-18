@@ -2,11 +2,7 @@
   "links": [
     {
       "asin": "B0DCF53PCH",
-      "url": "你的第一个Amazon链接"
-    },
-    {
-      "asin": "TEST2",
-      "url": "你的第二个Amazon链接"
+      "url": "https://www.amazon.com/dp/B0DCF53PCH"
     }
   ]
 }
