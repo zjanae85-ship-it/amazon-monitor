@@ -1,8 +1,12 @@
 {
   "links": [
     {
-      "asin": "B0DCF53PCH",
+      "asin": "US-B0DCF53PCH",
       "url": "https://www.amazon.com/dp/B0DCF53PCH"
+    },
+    {
+      "asin": "CA-B0DCF53PCH",
+      "url": "https://www.amazon.ca/dp/B0DCF53PCH"
     }
   ]
 }
