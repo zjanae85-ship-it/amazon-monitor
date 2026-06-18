@@ -20,6 +20,7 @@ jobs:
           python - <<'PY'
           import json
           import os
+          import re
           import urllib.request
 
           KEYWORD = "Amazon监控"
@@ -33,6 +34,47 @@ jobs:
               "Accept-Language": "en-US,en;q=0.9",
           }
 
+          def clean_html(s):
+              return re.sub(r"\s+", " ", s)
+
+          def get_price(html):
+              patterns = [
+                  r'class="a-price-whole">([^<]+)</span><span class="a-price-decimal">[^<]*</span><span class="a-price-fraction">([^<]+)</span>',
+                  r'id="priceblock_ourprice"[^>]*>([^<]+)<',
+                  r'id="priceblock_dealprice"[^>]*>([^<]+)<',
+                  r'id="corePriceDisplay_desktop_feature_div".{0,2000}?\$([0-9,]+(?:\.[0-9]{2})?)',
+              ]
+              for p in patterns:
+                  m = re.search(p, html, re.S)
+                  if m:
+                      if len(m.groups()) == 2:
+                          return "$" + m.group(1).replace(",", "").strip() + "." + m.group(2).strip()
+                      return m.group(1).strip() if "$" in m.group(1) else "$" + m.group(1).strip()
+              return "未检测到"
+
+          def has_coupon(html):
+              words = [
+                  "coupon",
+                  "Coupon",
+                  "Apply",
+                  "Save",
+                  "with coupon",
+                  "couponBadge",
+              ]
+              return any(w in html for w in words)
+
+          def has_deal(html):
+              words = [
+                  "Limited time deal",
+                  "Deal",
+                  "Lightning Deal",
+                  "Today's Deal",
+                  "dealBadge",
+                  "savingsPercentage",
+              ]
+              return any(w in html for w in words)
+
+          ok = []
           bad = []
 
           for item in links:
@@ -44,25 +86,45 @@ jobs:
                   with urllib.request.urlopen(req, timeout=25) as r:
                       html = r.read().decode("utf-8", errors="ignore")
 
+                  flat_html = clean_html(html)
+
+                  price = get_price(flat_html)
+                  coupon = "有" if has_coupon(flat_html) else "无/未检测到"
+                  deal = "有" if has_deal(flat_html) else "无/未检测到"
+
+                  has_cart = (
+                      "add-to-cart-button" in html
+                      or "Add to Cart" in html
+                      or "Buy Now" in html
+                      or "buy-now-button" in html
+                  )
+
+                  extra = f"价格：{price}\n秒杀/Deal：{deal}\nCoupon：{coupon}\n链接：{url}"
+
                   if "Robot Check" in html:
-                      bad.append(f"ASIN：{asin}\n异常：Amazon验证码/机器人拦截\n链接：{url}")
+                      bad.append(f"❌ ASIN：{asin}\n异常：Amazon验证码/机器人拦截\n{extra}")
 
                   elif "Page Not Found" in html or "Dogs of Amazon" in html or "Sorry! We couldn't find that page" in html:
-                      bad.append(f"ASIN：{asin}\n异常：页面打不开/狗页/Listing异常\n链接：{url}")
+                      bad.append(f"❌ ASIN：{asin}\n异常：页面打不开/狗页/Listing异常\n{extra}")
 
-                  elif "add-to-cart-button" not in html and "Add to Cart" not in html and "Buy Now" not in html:
-                      bad.append(f"ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart / Buy Now\n链接：{url}")
+                  elif not has_cart:
+                      bad.append(f"⚠️ ASIN：{asin}\n异常：疑似购物车丢失，未检测到 Add to Cart / Buy Now\n{extra}")
 
                   else:
-                      print(f"{asin} 正常")
+                      ok.append(f"✅ ASIN：{asin}\n状态：前台正常，检测到购物车/购买按钮\n{extra}")
 
               except Exception as e:
-                  bad.append(f"ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
+                  bad.append(f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
+
+          text = KEYWORD + "\n本次检测结果：\n\n"
+          text += f"正常：{len(ok)} 个\n"
+          text += f"异常：{len(bad)} 个\n\n"
+
+          if ok:
+              text += "【正常链接】\n" + "\n\n".join(ok) + "\n\n"
 
           if bad:
-              text = KEYWORD + "\n发现异常：\n\n" + "\n\n".join(bad)
-          else:
-              text = KEYWORD + "\n检测完成：全部正常 ✅"
+              text += "【异常链接】\n" + "\n\n".join(bad)
 
           data = {
               "msg_type": "text",
