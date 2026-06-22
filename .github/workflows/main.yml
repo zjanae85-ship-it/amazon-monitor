@@ -28,19 +28,16 @@ jobs:
 
           now_bj = datetime.now(timezone.utc) + timedelta(hours=8)
           hour = now_bj.hour
-          weekday = now_bj.weekday()  # 0=周一, 6=周日
+          weekday = now_bj.weekday()  # 0=周一，6=周日
 
           is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          is_weekend = weekday >= 5
 
-          weekday_report_hours = [10, 13, 16, 19, 22]
-          weekend_report_hours = list(range(10, 23))
+          # A版本：
+          # 工作日/周末正常报告时间：
+          # 10点、13点、16点、19点、22点、00点、02点
+          normal_report_hours = [0, 2, 10, 13, 16, 19, 22]
 
-          should_send_normal = (
-              is_manual
-              or (not is_weekend and hour in weekday_report_hours)
-              or (is_weekend and hour in weekend_report_hours)
-          )
+          should_send_normal = is_manual or hour in normal_report_hours
 
           with open("links.json", "r", encoding="utf-8") as f:
               links = json.load(f)["links"]
@@ -75,10 +72,10 @@ jobs:
           if bad or should_send_normal:
               if is_manual:
                   mode = "手动测试"
-              elif is_weekend:
-                  mode = "周末正常报告"
+              elif bad:
+                  mode = "异常立即通知"
               else:
-                  mode = "工作日正常报告"
+                  mode = "A版本固定时间报告"
 
               text = KEYWORD + "\n本次检测结果：\n\n"
               text += f"模式：{mode}\n"
@@ -106,5 +103,5 @@ jobs:
               urllib.request.urlopen(req, timeout=20)
 
           else:
-              print("检测正常，但当前不是正常报告时间，不发送飞书。")
+              print("检测正常，但当前不是A版本固定报告时间，不发送飞书。")
           PY
