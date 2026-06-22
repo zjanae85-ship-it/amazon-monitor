@@ -26,28 +26,21 @@ jobs:
           KEYWORD = "Amazon监控"
           WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
-          now_utc = datetime.now(timezone.utc)
-          now_bj = now_utc + timedelta(hours=8)
-          bj_hour = now_bj.hour
-          bj_weekday = now_bj.weekday()  # 0=周一, 6=周日
+          now_bj = datetime.now(timezone.utc) + timedelta(hours=8)
+          hour = now_bj.hour
+          weekday = now_bj.weekday()  # 0=周一, 6=周日
 
-          is_weekend = bj_weekday >= 5
-          is_mandatory_report_time = bj_hour in [10, 22]
-          is_manual_run = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          is_weekend = weekday >= 5
 
-          # GitHub每小时启动一次：
-          # 工作日：0/3/6/9/12/15/18/21点检测 + 10点/22点强制检测
-          # 周末：每小时检测
-          should_check = (
-              is_manual_run
-              or is_weekend
-              or bj_hour % 3 == 0
-              or is_mandatory_report_time
+          weekday_report_hours = [10, 13, 16, 19, 22]
+          weekend_report_hours = list(range(10, 23))
+
+          should_send_normal = (
+              is_manual
+              or (not is_weekend and hour in weekday_report_hours)
+              or (is_weekend and hour in weekend_report_hours)
           )
-
-          if not should_check:
-              print("当前不是检测时间，跳过。")
-              raise SystemExit(0)
 
           with open("links.json", "r", encoding="utf-8") as f:
               links = json.load(f)["links"]
@@ -66,68 +59,52 @@ jobs:
 
               try:
                   req = urllib.request.Request(url, headers=headers)
-
                   with urllib.request.urlopen(req, timeout=25) as r:
                       html = r.read().decode("utf-8", errors="ignore")
 
                   if "Robot Check" in html:
-                      bad.append(
-                          f"❌ ASIN：{asin}\n异常：Amazon验证码拦截\n链接：{url}"
-                      )
-
-                  elif (
-                      "Page Not Found" in html
-                      or "Dogs of Amazon" in html
-                      or "Sorry! We couldn't find that page" in html
-                  ):
-                      bad.append(
-                          f"❌ ASIN：{asin}\n异常：页面异常/狗页\n链接：{url}"
-                      )
-
+                      bad.append(f"❌ ASIN：{asin}\n异常：Amazon验证码拦截\n链接：{url}")
+                  elif "Page Not Found" in html or "Dogs of Amazon" in html or "Sorry! We couldn't find that page" in html:
+                      bad.append(f"❌ ASIN：{asin}\n异常：页面异常/狗页\n链接：{url}")
                   else:
-                      ok.append(
-                          f"✅ ASIN：{asin}\n状态：页面正常\n链接：{url}"
-                      )
+                      ok.append(f"✅ ASIN：{asin}\n状态：页面正常\n链接：{url}")
 
               except Exception as e:
-                  bad.append(
-                      f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}"
-                  )
+                  bad.append(f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
 
-          if is_manual_run:
-              mode = "手动测试"
-          elif is_weekend:
-              mode = "周末每小时检测"
-          elif is_mandatory_report_time:
-              mode = "早晚10点强制报告"
+          if bad or should_send_normal:
+              if is_manual:
+                  mode = "手动测试"
+              elif is_weekend:
+                  mode = "周末正常报告"
+              else:
+                  mode = "工作日正常报告"
+
+              text = KEYWORD + "\n本次检测结果：\n\n"
+              text += f"模式：{mode}\n"
+              text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
+              text += f"正常：{len(ok)} 个\n"
+              text += f"异常：{len(bad)} 个\n\n"
+
+              if ok:
+                  text += "【正常链接】\n" + "\n\n".join(ok) + "\n\n"
+
+              if bad:
+                  text += "【异常链接】\n" + "\n\n".join(bad)
+
+              data = {
+                  "msg_type": "text",
+                  "content": {"text": text}
+              }
+
+              req = urllib.request.Request(
+                  WEBHOOK,
+                  data=json.dumps(data).encode("utf-8"),
+                  headers={"Content-Type": "application/json"}
+              )
+
+              urllib.request.urlopen(req, timeout=20)
+
           else:
-              mode = "工作日每3小时检测"
-
-          text = KEYWORD + "\n本次检测结果：\n\n"
-          text += f"模式：{mode}\n"
-          text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
-          text += f"正常：{len(ok)} 个\n"
-          text += f"异常：{len(bad)} 个\n\n"
-
-          if ok:
-              text += "【正常链接】\n"
-              text += "\n\n".join(ok)
-              text += "\n\n"
-
-          if bad:
-              text += "【异常链接】\n"
-              text += "\n\n".join(bad)
-
-          data = {
-              "msg_type": "text",
-              "content": {"text": text}
-          }
-
-          req = urllib.request.Request(
-              WEBHOOK,
-              data=json.dumps(data).encode("utf-8"),
-              headers={"Content-Type": "application/json"}
-          )
-
-          urllib.request.urlopen(req, timeout=20)
+              print("检测正常，但当前不是正常报告时间，不发送飞书。")
           PY
