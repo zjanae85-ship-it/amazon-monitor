@@ -27,20 +27,6 @@ jobs:
           WEBHOOK = os.environ["FEISHU_WEBHOOK"]
 
           now_bj = datetime.now(timezone.utc) + timedelta(hours=8)
-          hour = now_bj.hour
-          weekday = now_bj.weekday()  # 0=周一，6=周日
-
-          is_manual = os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          is_weekend = weekday >= 5
-
-          weekday_report_hours = [0, 9, 14, 17, 19, 22]
-          weekend_report_hours = [0, 11, 18, 22]
-
-          should_send_normal = (
-              is_manual
-              or (not is_weekend and hour in weekday_report_hours)
-              or (is_weekend and hour in weekend_report_hours)
-          )
 
           with open("links.json", "r", encoding="utf-8") as f:
               links = json.load(f)["links"]
@@ -72,38 +58,30 @@ jobs:
               except Exception as e:
                   bad.append(f"❌ ASIN：{asin}\n异常：访问失败\n错误：{e}\n链接：{url}")
 
-          if bad or should_send_normal:
-              if is_manual:
-                  mode = "手动测试"
-              elif bad:
-                  mode = "异常立即通知"
-              else:
-                  mode = "固定时间报告"
+          mode = "每小时固定报告"
 
-              text = KEYWORD + "\n本次检测结果：\n\n"
-              text += f"模式：{mode}\n"
-              text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
-              text += f"正常：{len(ok)} 个\n"
-              text += f"异常：{len(bad)} 个\n\n"
+          text = KEYWORD + "\n本次检测结果：\n\n"
+          text += f"模式：{mode}\n"
+          text += f"北京时间：{now_bj.strftime('%Y-%m-%d %H:%M')}\n"
+          text += f"正常：{len(ok)} 个\n"
+          text += f"异常：{len(bad)} 个\n\n"
 
-              if ok:
-                  text += "【正常链接】\n" + "\n\n".join(ok) + "\n\n"
+          if ok:
+              text += "【正常链接】\n" + "\n\n".join(ok) + "\n\n"
 
-              if bad:
-                  text += "【异常链接】\n" + "\n\n".join(bad)
+          if bad:
+              text += "【异常链接】\n" + "\n\n".join(bad)
 
-              data = {
-                  "msg_type": "text",
-                  "content": {"text": text}
-              }
+          data = {
+              "msg_type": "text",
+              "content": {"text": text}
+          }
 
-              req = urllib.request.Request(
-                  WEBHOOK,
-                  data=json.dumps(data).encode("utf-8"),
-                  headers={"Content-Type": "application/json"}
-              )
+          req = urllib.request.Request(
+              WEBHOOK,
+              data=json.dumps(data).encode("utf-8"),
+              headers={"Content-Type": "application/json"}
+          )
 
-              urllib.request.urlopen(req, timeout=20)
-          else:
-              print("正常，但当前不是固定报告时间，不发送飞书。")
+          urllib.request.urlopen(req, timeout=20)
           PY
