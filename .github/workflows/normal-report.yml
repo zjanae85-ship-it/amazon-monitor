@@ -1,0 +1,30 @@
+name: Amazon Normal Report
+
+on:
+  schedule:
+    # 工作日（北京时间：09、14、17、19、22、00）
+    - cron: "7 1,6,9,11,14,16 * * 1-5"
+
+    # 周末（北京时间：11、18、22、00）
+    - cron: "7 3,10,14,16 * * 0,6"
+
+  workflow_dispatch:
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Normal Report
+        env:
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        run: |
+          python monitor.py
